@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 云同步（Supabase）需要网络权限，release 包不会自动合并 debug 清单里的声明 -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="today_do_what"
+        android:label="今天干点啥"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
