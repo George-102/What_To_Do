@@ -50,7 +50,7 @@ void main() {
     await tester.tap(find.text('历史'));
     await tester.pumpAndSettle();
 
-    expect(find.text('最近一周'), findsOneWidget);
+    expect(find.text('最近一年'), findsOneWidget);
     expect(find.text('2026-10-07'), findsOneWidget);
     expect(find.text('已打卡'), findsNothing);
     expect(find.text('已完成'), findsOneWidget);

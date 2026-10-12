@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:today_do_what/models/app_state.dart';
 import 'package:today_do_what/models/daily_record.dart';
 import 'package:today_do_what/models/reward.dart';
+import 'package:today_do_what/models/task.dart';
+import 'package:today_do_what/models/task_stats.dart';
 import 'package:today_do_what/providers/app_provider.dart';
 import 'package:today_do_what/services/coin_service.dart';
 import 'package:today_do_what/services/date_util.dart';
@@ -151,5 +153,52 @@ void main() {
     expect(provider.canReroll, isFalse);
     expect(provider.rerollToday(), isFalse);
     expect(provider.state.history.single.taskIds, before);
+  });
+
+  test('自定义任务：addTask 写入 tasks + taskStats', () {
+    final provider = AppProvider(now: () => DateTime(2026, 10, 7));
+    // 初始是空的 AppState，tasks 字段为空
+    expect(provider.state.tasks, isEmpty);
+    expect(provider.currentTasks, Task.seed); // 空时回退到默认种子
+
+    provider.addTask(name: '学吉他', hint: '练 20 分钟');
+    expect(provider.state.tasks.length, 1);
+    expect(provider.state.tasks.single.name, '学吉他');
+    expect(provider.state.tasks.single.hint, '练 20 分钟');
+    expect(provider.currentTasks.length, 1);
+    // taskStats 里也应该有这个新任务
+    expect(
+        provider.state.taskStats.any((s) => s.taskId == '学吉他'), isTrue);
+  });
+
+  test('自定义任务：removeTask 从 tasks + taskStats 移除', () {
+    final provider = AppProvider(
+      now: () => DateTime(2026, 10, 7),
+      initial: AppState(
+        tasks: const [
+          Task(id: 'guitar', name: '学吉他', hint: ''),
+          Task(id: 'yoga', name: '瑜伽', hint: ''),
+        ],
+        taskStats: const [
+          TaskStats(taskId: 'guitar'),
+          TaskStats(taskId: 'yoga'),
+        ],
+      ),
+    );
+    expect(provider.state.tasks.length, 2);
+    expect(provider.currentTasks.length, 2);
+
+    provider.removeTask('guitar');
+    expect(provider.state.tasks.length, 1);
+    expect(provider.state.tasks.single.id, 'yoga');
+    expect(provider.state.taskStats.any((s) => s.taskId == 'guitar'), isFalse);
+    expect(provider.state.taskStats.any((s) => s.taskId == 'yoga'), isTrue);
+  });
+
+  test('自定义任务：空名称添加失败', () {
+    final provider = AppProvider(now: () => DateTime(2026, 10, 7));
+    final ok = provider.addTask(name: '   ');
+    expect(ok, isFalse);
+    expect(provider.state.tasks, isEmpty);
   });
 }

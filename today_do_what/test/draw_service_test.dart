@@ -1,13 +1,14 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:today_do_what/models/app_state.dart';
 import 'package:today_do_what/models/daily_record.dart';
+import 'package:today_do_what/models/task.dart';
 import 'package:today_do_what/services/date_util.dart';
 import 'package:today_do_what/services/draw_service.dart';
 
 void main() {
   test('每次返回 3 个不同任务 id', () {
     final draw = DrawService();
-    final res = draw.drawIds();
+    final res = draw.drawIds(pool: Task.seed);
     expect(res.length, 3);
     expect(res.toSet().length, 3);
   });

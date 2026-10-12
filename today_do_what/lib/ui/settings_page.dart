@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../models/task.dart';
 import '../providers/app_provider.dart';
 import '../services/supabase_sync_service.dart';
 import 'app_colors.dart';
@@ -18,11 +19,15 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   final _codeController = TextEditingController();
+  final _newTaskController = TextEditingController();
+  final _newHintController = TextEditingController();
   bool _isSubmitting = false;
 
   @override
   void dispose() {
     _codeController.dispose();
+    _newTaskController.dispose();
+    _newHintController.dispose();
     super.dispose();
   }
 
@@ -89,6 +94,50 @@ class _SettingsPageState extends State<SettingsPage> {
   void _showSnack(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  /// 添加自定义任务（名称 + 可选提示语）。
+  void _addTask() {
+    final name = _newTaskController.text.trim();
+    final hint = _newHintController.text.trim();
+    if (name.isEmpty) {
+      _showSnack('请输入任务名');
+      return;
+    }
+    final provider = context.read<AppProvider>();
+    final ok = provider.addTask(name: name, hint: hint);
+    if (ok) {
+      _newTaskController.clear();
+      _newHintController.clear();
+      _showSnack('已添加「$name」');
+    } else {
+      _showSnack('添加失败，请检查名称');
+    }
+  }
+
+  /// 确认删除任务。
+  Future<void> _confirmDeleteTask(Task task) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除任务'),
+        content: Text('确定删除「${task.name}」吗？历史记录不受影响。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true && mounted) {
+      context.read<AppProvider>().removeTask(task.id);
+      _showSnack('已删除「${task.name}」');
+    }
   }
 
   /// 格式化上次同步时间。
@@ -274,6 +323,98 @@ class _SettingsPageState extends State<SettingsPage> {
 
           const SizedBox(height: 20),
 
+          // 任务管理
+          Card(
+            color: AppColors.surface,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('任务管理',
+                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+                  const SizedBox(height: 4),
+                  Text(
+                    '自定义每天可能抽到的任务，删除后历史记录不受影响。',
+                    style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _newTaskController,
+                          decoration: InputDecoration(
+                            hintText: '输入新任务名',
+                            hintStyle: TextStyle(color: AppColors.textSecondary),
+                            filled: true,
+                            fillColor: AppColors.background,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: BorderSide.none,
+                            ),
+                            contentPadding:
+                                const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          ),
+                          onSubmitted: (_) => _addTask(),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton.icon(
+                        onPressed: _addTask,
+                        icon: const Icon(Icons.add, size: 18),
+                        label: const Text('添加'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _newHintController,
+                    decoration: InputDecoration(
+                      hintText: '任务描述（选填，比如"背一页单词"）',
+                      hintStyle: TextStyle(color: AppColors.textSecondary),
+                      filled: true,
+                      fillColor: AppColors.background,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding:
+                          const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    ),
+                    onSubmitted: (_) => _addTask(),
+                  ),
+                  const SizedBox(height: 12),
+                  Consumer<AppProvider>(
+                    builder: (context, provider, _) {
+                      final tasks = provider.currentTasks;
+                      return Column(
+                        children: [
+                          for (var i = 0; i < tasks.length; i++) ...[
+                            if (i > 0) const SizedBox(height: 4),
+                            _TaskRow(
+                              task: tasks[i],
+                              onDelete: () => _confirmDeleteTask(tasks[i]),
+                            ),
+                          ],
+                        ],
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
           // 关于信息
           Card(
             color: AppColors.surface,
@@ -388,6 +529,53 @@ class _InfoRow extends StatelessWidget {
               value,
               style: const TextStyle(fontSize: 13),
               overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TaskRow extends StatelessWidget {
+  const _TaskRow({required this.task, required this.onDelete});
+
+  final Task task;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  task.name,
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                ),
+                if (task.hint.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    task.hint,
+                    style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: onDelete,
+            icon: const Icon(Icons.delete_outline, size: 18),
+            style: IconButton.styleFrom(
+              foregroundColor: Colors.redAccent,
             ),
           ),
         ],

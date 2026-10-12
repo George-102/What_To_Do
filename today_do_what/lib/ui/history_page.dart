@@ -13,6 +13,7 @@ class HistoryPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final history = context.watch<AppProvider>().state.history;
+    final tasks = context.watch<AppProvider>().currentTasks;
     // 最新在前。
     final sorted = [...history]..sort((a, b) => b.date.compareTo(a.date));
 
@@ -24,7 +25,7 @@ class HistoryPage extends StatelessWidget {
           children: [
             const SizedBox(height: 8),
             Text(
-              '最近一周',
+              '最近一年',
               style: Theme.of(context)
                   .textTheme
                   .headlineMedium
@@ -42,7 +43,8 @@ class HistoryPage extends StatelessWidget {
                   : ListView.separated(
                       itemCount: sorted.length,
                       separatorBuilder: (_, _) => const SizedBox(height: 12),
-                      itemBuilder: (context, i) => _HistoryCard(rec: sorted[i]),
+                      itemBuilder: (context, i) =>
+                          _HistoryCard(rec: sorted[i], tasks: tasks),
                     ),
             ),
           ],
@@ -54,9 +56,10 @@ class HistoryPage extends StatelessWidget {
 
 /// 单日记录卡片：日期 + 打卡状态 + 当天任务。
 class _HistoryCard extends StatelessWidget {
-  const _HistoryCard({required this.rec});
+  const _HistoryCard({required this.rec, required this.tasks});
 
   final DailyRecord rec;
+  final List<Task> tasks;
 
   @override
   Widget build(BuildContext context) {
@@ -117,7 +120,7 @@ class _HistoryCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
-                    Task.byId(id)?.name ?? '未知',
+                    Task.byId(id, tasks)?.name ?? '未知',
                     style: const TextStyle(
                       fontSize: 13,
                       color: AppColors.primary,

@@ -2,6 +2,7 @@ import '../models/app_state.dart';
 import '../models/coin_log.dart';
 import '../models/daily_record.dart';
 import '../models/reward.dart';
+import '../models/task.dart';
 import 'draw_service.dart';
 
 /// 同步合并器：纯函数，将本地与远端两份 [AppState] 合并为一份。
@@ -9,8 +10,8 @@ import 'draw_service.dart';
 /// 合并策略：
 /// - DailyRecord 按 date 去重，同日取 updatedAt 更晚的（抽签冲突解决）。
 /// - CoinLog / Reward 按 id 去重（跨设备 id 已加 deviceId 前缀，天然不碰撞）。
-/// - 顶层字段（coinBalance、连续天数、lastCheckInDate、lastRerollWeek）
-///   取两份 AppState 中 updatedAt 更晚的那份的值。
+/// - 顶层字段（coinBalance、连续天数、lastCheckInDate、lastRerollWeek、tasks）
+///   取两份 AppState 中 updatedAt 更晚的那份的值（last-write-wins）。
 /// - taskStats 从合并后的 history 重新计算（保证与 history 一致）。
 class SyncMerger {
   /// 合并两份 AppState，返回合并后的新状态。
@@ -28,11 +29,16 @@ class SyncMerger {
     // 3. 合并 Reward（按 id 去重）
     final mergedRewards = _mergeRewards(local.rewards, remote.rewards);
 
-    // 4. 顶层字段：取两份 AppState 中 updatedAt 更晚的那份
+    // 4. 顶层字段 + tasks：取两份 AppState 中 updatedAt 更晚的那份
     final topLevel = _resolveTopLevel(local, remote);
 
-    // 5. taskStats 从合并后的 history 重新计算
-    final mergedStats = DrawService.computeStats(mergedHistory);
+    // 5. tasks 也走 last-write-wins（在顶层字段里一起解析）
+    final mergedTasks = _resolveTasks(local, remote);
+
+    // 6. taskStats 从合并后的 history + tasks 重新计算
+    final effectiveTasks =
+        mergedTasks.isEmpty ? Task.seed : mergedTasks;
+    final mergedStats = DrawService.computeStats(mergedHistory, effectiveTasks);
 
     return AppState(
       coinBalance: topLevel.coinBalance,
@@ -41,10 +47,28 @@ class SyncMerger {
       lastRerollWeek: topLevel.lastRerollWeek,
       history: mergedHistory,
       taskStats: mergedStats,
+      tasks: mergedTasks,
       rewards: mergedRewards,
       coinLog: mergedCoinLog,
       updatedAt: effectiveNow,
     );
+  }
+
+  /// 解析 tasks：取两份 AppState 中 updatedAt 更晚的那份的 tasks。
+  /// 空列表视为"未设置"，回退到另一份非空的。
+  static List<Task> _resolveTasks(AppState local, AppState remote) {
+    final localTime = local.updatedAt;
+    final remoteTime = remote.updatedAt;
+
+    final useRemote = remoteTime != null &&
+        (localTime == null || !remoteTime.isBefore(localTime));
+
+    final chosen = useRemote ? remote : local;
+    final other = useRemote ? local : remote;
+
+    if (chosen.tasks.isNotEmpty) return chosen.tasks;
+    if (other.tasks.isNotEmpty) return other.tasks;
+    return Task.seed;
   }
 
   /// 合并 DailyRecord 列表：按 date 分组，同日取 updatedAt 更晚的。

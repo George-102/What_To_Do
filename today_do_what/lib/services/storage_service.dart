@@ -15,7 +15,7 @@ class StorageService {
   static const String key = 'app_state_v1';
 
   /// 保留最近 N 天（含今天）的历史与流水。
-  static const int historyRetainDays = 7;
+  static const int historyRetainDays = 365;
 
   /// 从本地读取并反序列化 AppState；没有存档时返回 null。
   Future<AppState?> load() async {

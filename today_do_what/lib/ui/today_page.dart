@@ -7,8 +7,72 @@ import '../providers/app_provider.dart';
 import 'app_colors.dart';
 
 /// 今日页：抽签、查看当天任务、打卡的核心页面。
-class TodayPage extends StatelessWidget {
+class TodayPage extends StatefulWidget {
   const TodayPage({super.key});
+
+  @override
+  State<TodayPage> createState() => _TodayPageState();
+}
+
+class _TodayPageState extends State<TodayPage> with TickerProviderStateMixin {
+  /// 当前是否在播放抽卡动画中。
+  bool _isAnimating = false;
+
+  /// 3 张卡片的动画控制器（每张依次翻转揭晓）。
+  late final List<AnimationController> _flipControllers;
+  late final List<Animation<double>> _flipAnimations;
+
+  @override
+  void initState() {
+    super.initState();
+    _flipControllers = List.generate(
+      3,
+      (_) => AnimationController(
+        vsync: this,
+        duration: const Duration(milliseconds: 500),
+      ),
+    );
+    _flipAnimations = _flipControllers
+        .map((c) => CurvedAnimation(parent: c, curve: Curves.easeInOut))
+        .toList();
+  }
+
+  @override
+  void dispose() {
+    for (final c in _flipControllers) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  /// 点击抽奖后，先执行 provider.drawToday（数据立即落地），
+  /// 然后依次启动 3 张卡片的翻牌动画。
+  Future<void> _onDraw() async {
+    if (_isAnimating) return;
+    setState(() => _isAnimating = true);
+
+    final provider = context.read<AppProvider>();
+    provider.drawToday();
+
+    // 依次翻牌：每张间隔 350ms，翻牌动画 500ms
+    for (var i = 0; i < 3; i++) {
+      await Future.delayed(const Duration(milliseconds: 350));
+      if (!mounted) return;
+      await _flipControllers[i].forward();
+    }
+
+    if (!mounted) return;
+    // 动画全部播放完毕，再给一点时间让用户看到最后一张揭晓
+    await Future.delayed(const Duration(milliseconds: 300));
+    if (!mounted) return;
+    setState(() {
+      _isAnimating = false;
+      // 重置动画控制器，下一次可以重新播放
+      for (final c in _flipControllers) {
+        c.reset();
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -37,15 +101,18 @@ class TodayPage extends StatelessWidget {
             ),
             const SizedBox(height: 24),
             Expanded(
-              child: todayRec == null
-                  ? _DrawEmpty(onDraw: provider.drawToday)
-                  : _TaskList(
-                      taskIds: todayRec.taskIds,
-                      isCheckedIn: todayRec.isCheckedIn,
-                      canReroll: provider.canReroll,
-                      onCheckIn: provider.checkIn,
-                      onReroll: () => _confirmReroll(context, provider),
-                    ),
+              child: _isAnimating
+                  ? _DrawAnimation(animations: _flipAnimations)
+                  : todayRec == null
+                      ? _DrawEmpty(onDraw: _onDraw)
+                      : _TaskList(
+                          taskIds: todayRec.taskIds,
+                          isCheckedIn: todayRec.isCheckedIn,
+                          canReroll: provider.canReroll,
+                          onCheckIn: provider.checkIn,
+                          onReroll: () => _confirmReroll(context, provider),
+                          tasks: provider.currentTasks,
+                        ),
             ),
           ],
         ),
@@ -58,6 +125,135 @@ class TodayPage extends StatelessWidget {
       if (r.date == date) return r;
     }
     return null;
+  }
+}
+
+/// 抽卡动画：3 张背面朝下的卡片，依次翻转显示结果。
+///
+/// 动画播放期间 provider.drawToday 已经执行完毕，state 中有真实的
+/// [AppState.history] 数据，但动画层自行根据 AnimationController 状态
+/// 决定显示"背面"还是"正面"（正面内容从 provider 实时读取）。
+class _DrawAnimation extends StatelessWidget {
+  const _DrawAnimation({required this.animations});
+
+  final List<Animation<double>> animations;
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.read<AppProvider>();
+    final todayRec = _TodayPageState._recordOn(
+      provider.state.history,
+      provider.todayString,
+    );
+    final taskIds = todayRec?.taskIds ?? const [];
+
+    return Column(
+      children: [
+        for (var i = 0; i < 3; i++) ...[
+          if (i > 0) const SizedBox(height: 12),
+          _FlipCard(
+            animation: animations[i],
+            task: i < taskIds.length
+                ? Task.byId(taskIds[i], provider.currentTasks)
+                : null,
+            order: i + 1,
+          ),
+        ],
+        const SizedBox(height: 16),
+        Text(
+          '正在揭晓今天的幸运任务...',
+          style: TextStyle(
+            fontSize: 13,
+            color: AppColors.textSecondary.withValues(alpha: 0.7),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 单张翻牌动画 widget。
+///
+/// 背面显示一个问号，正面显示真实任务内容。
+/// 动画值从 0→1 时，卡片先做 Y 轴 90° 旋转（看起来翻走了），
+/// 再做剩余 90° 旋转（翻过来显示正面）。
+class _FlipCard extends StatelessWidget {
+  const _FlipCard({
+    required this.animation,
+    required this.task,
+    required this.order,
+  });
+
+  final Animation<double> animation;
+  final Task? task;
+  final int order;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (context, child) {
+        // 用动画值决定显示正面还是背面（0.5 是翻到一半的切换点）
+        final showFront = animation.value > 0.5;
+        // 旋转角度：0° → 90° → 180°
+        final angle = animation.value * 3.14159;
+
+        return Transform(
+          alignment: Alignment.center,
+          transform: Matrix4.rotationY(angle),
+          child: showFront
+              ? Transform(
+                  alignment: Alignment.center,
+                  transform: Matrix4.rotationY(3.14159),
+                  child: _buildFront(),
+                )
+              : _buildBack(),
+        );
+      },
+    );
+  }
+
+  Widget _buildBack() {
+    return Container(
+      width: double.infinity,
+      height: 100,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppColors.primary,
+            AppColors.primary.withValues(alpha: 0.7),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x1A000000),
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: const Center(
+        child: Text(
+          '?',
+          style: TextStyle(
+            fontSize: 48,
+            fontWeight: FontWeight.w700,
+            color: Colors.white,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFront() {
+    return _TaskCard(
+      order: order,
+      task: task,
+      done: false,
+    );
   }
 }
 
@@ -90,6 +286,7 @@ class _TaskList extends StatelessWidget {
     required this.canReroll,
     required this.onCheckIn,
     required this.onReroll,
+    required this.tasks,
   });
 
   final List<String> taskIds;
@@ -97,6 +294,7 @@ class _TaskList extends StatelessWidget {
   final bool canReroll;
   final VoidCallback onCheckIn;
   final VoidCallback onReroll;
+  final List<Task> tasks;
 
   @override
   Widget build(BuildContext context) {
@@ -107,7 +305,7 @@ class _TaskList extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 12),
             child: _TaskCard(
               order: i + 1,
-              task: Task.byId(taskIds[i]),
+              task: Task.byId(taskIds[i], tasks),
               done: isCheckedIn,
             ),
           ),

@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import '../models/app_state.dart';
 import '../models/coin_log.dart';
 import '../models/reward.dart';
+import '../models/task.dart';
+import '../models/task_stats.dart';
 import '../services/coin_service.dart';
 import '../services/date_util.dart';
 import '../services/device_info.dart';
@@ -234,6 +236,44 @@ class AppProvider extends ChangeNotifier {
     ));
     return true;
   }
+
+  /// 添加一个自定义任务。返回是否成功（名称为空或 id 已存在时返回 false）。
+  bool addTask({required String name, String hint = ''}) {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return false;
+
+    final existingIds = _state.tasks.map((t) => t.id).toSet();
+    // 生成唯一 id：用户输入的中文名 hash + 时间戳，避免中文直接作为 id
+    final idBase = trimmed.replaceAll(RegExp(r'\s+'), '_').toLowerCase();
+    var id = idBase.isEmpty ? 'task_${_now().millisecondsSinceEpoch}' : idBase;
+    var counter = 1;
+    while (existingIds.contains(id)) {
+      id = '${idBase}_$counter';
+      counter++;
+    }
+
+    final task = Task(id: id, name: trimmed, hint: hint.trim());
+    replace(_state.copyWith(
+      tasks: [..._state.tasks, task],
+      taskStats: [
+        ..._state.taskStats,
+        TaskStats(taskId: id),
+      ],
+    ));
+    return true;
+  }
+
+  /// 删除一个任务。已出现在历史记录中的任务仍能解析（回退到 Task.seed 或显示"未知"）。
+  void removeTask(String taskId) {
+    replace(_state.copyWith(
+      tasks: _state.tasks.where((t) => t.id != taskId).toList(),
+      taskStats: _state.taskStats.where((s) => s.taskId != taskId).toList(),
+    ));
+  }
+
+  /// 获取当前任务列表（空则回退默认种子）。
+  List<Task> get currentTasks =>
+      _state.tasks.isEmpty ? Task.seed : _state.tasks;
 
   /// 本周是否还有反悔机会（自然周重置，默认本周已用则无）。
   bool get canReroll {

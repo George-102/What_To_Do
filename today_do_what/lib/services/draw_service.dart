@@ -6,10 +6,12 @@ import '../models/task.dart';
 import '../models/task_stats.dart';
 import 'date_util.dart';
 
-/// 抽奖服务：从固定任务池随机抽取当天任务，并落地「连续排除规则」。
+/// 抽奖服务：从任务池随机抽取当天任务，并落地「连续排除规则」。
 ///
 /// 连续排除规则：某任务连续两天被抽中，第三天从池中排除；若某天未抽中，
 /// 连续计数即中断（规则语义见 plan.md 第三节）。
+///
+/// 任务来源：[state.tasks]（用户自定义列表）；为空时回退到 [Task.seed]。
 class DrawService {
   DrawService({Random? random, DateTime Function()? now})
       : _random = random ?? Random(),
@@ -21,10 +23,10 @@ class DrawService {
   /// 每天抽取的任务数。
   static const int dailyCount = 3;
 
-  /// 直接用全部任务池随机取 [count] 个不重复 id（不代入排除规则）。
-  List<String> drawIds({int count = dailyCount}) {
-    final pool = Task.pool.map((t) => t.id).toList();
-    return _pick(pool, count);
+  /// 直接用任务池随机取 [count] 个不重复 id（不代入排除规则）。
+  List<String> drawIds({required List<Task> pool, int count = dailyCount}) {
+    final ids = pool.map((t) => t.id).toList();
+    return _pick(ids, count);
   }
 
   /// 为某天抽取任务。
@@ -34,21 +36,22 @@ class DrawService {
   AppState drawForDay(AppState state, String today) {
     if (_isDrawn(state, today)) return state;
 
+    final pool = _resolveTasks(state.tasks);
     final yesterday = yesterdayOf(today);
     final excluded = <String>{
-      for (final t in Task.pool)
+      for (final t in pool)
         if (_consecutiveSelectedStatic(state.history, yesterday, t.id) >= 2) t.id,
     };
 
-    final pool =
-        Task.pool.map((t) => t.id).where((id) => !excluded.contains(id)).toList();
-    final ids = _pick(pool, dailyCount);
+    final drawPool =
+        pool.map((t) => t.id).where((id) => !excluded.contains(id)).toList();
+    final ids = _pick(drawPool, dailyCount);
 
     final history = [
       ...state.history,
       DailyRecord(date: today, taskIds: ids, updatedAt: _now()),
     ];
-    final stats = computeStats(history);
+    final stats = computeStats(history, pool);
     return state.copyWith(history: history, taskStats: stats);
   }
 
@@ -83,6 +86,12 @@ class DrawService {
     return list.take(count).toList();
   }
 
+  /// 解析任务池：用户自定义列表优先，空则回退默认种子。
+  static List<Task> _resolveTasks(List<Task> tasks) {
+    if (tasks.isNotEmpty) return tasks;
+    return Task.seed;
+  }
+
   bool _isDrawn(AppState state, String today) {
     for (final r in state.history) {
       if (r.date == today) return true;
@@ -91,10 +100,14 @@ class DrawService {
   }
 
   /// 基于历史重算每个任务的统计：最近一次被抽日期 + 该日期的连续抽中天数。
-  static List<TaskStats> computeStats(List<DailyRecord> history) {
+  ///
+  /// [tasks] 决定要统计哪些任务（与 AppState.tasks 保持一致）。
+  static List<TaskStats> computeStats(
+      List<DailyRecord> history, List<Task> tasks) {
+    final pool = _resolveTasks(tasks);
     final sorted = [...history]..sort((a, b) => b.date.compareTo(a.date));
     return [
-      for (final t in Task.pool)
+      for (final t in pool)
         () {
           for (final r in sorted) {
             if (r.taskIds.contains(t.id)) {

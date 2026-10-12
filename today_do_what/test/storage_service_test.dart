@@ -39,18 +39,18 @@ void main() {
     expect(loaded.history.single.taskIds, ['a', 'b', 'c']);
   });
 
-  test('prune 只保留最近 7 天', () {
+  test('prune 只保留最近 365 天', () {
     const today = '2026-10-07';
     final state = AppState(
       history: [
-        for (var i = 9; i >= 0; i--) recordOn(subtractDays(today, i)),
+        for (var i = 400; i >= 0; i--) recordOn(subtractDays(today, i)),
       ],
     );
 
     final pruned = StorageService.prune(state, today);
 
-    expect(pruned.history.length, 7);
-    expect(pruned.history.first.date, subtractDays(today, 6));
+    expect(pruned.history.length, 365);
+    expect(pruned.history.first.date, subtractDays(today, 364));
     expect(pruned.history.last.date, today);
   });
 }

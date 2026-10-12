@@ -1,4 +1,4 @@
-/// 任务模型与固定的任务池。
+/// 任务模型。任务列表由用户自定义后保存在 [AppState.tasks] 中。
 class Task {
   const Task({required this.id, required this.name, required this.hint});
 
@@ -16,8 +16,9 @@ class Task {
         hint: json['hint'] as String,
       );
 
-  /// 固定任务池。
-  static const List<Task> pool = [
+  /// 默认任务种子（8 个），首次使用或存档为空时注入 AppState.tasks。
+  /// 向后兼容：已有历史记录里的 taskId 仍能通过 byId 匹配到这些默认任务。
+  static const List<Task> seed = [
     Task(id: 'kaoyan', name: '考研', hint: '背一页单词，也算数。'),
     Task(id: 'intern', name: '实习工作', hint: '投一份简历，或推进一步。'),
     Task(id: 'reading', name: '阅读', hint: '读 10 页就好。'),
@@ -28,8 +29,17 @@ class Task {
     Task(id: 'vocab', name: '英语背单词', hint: '背 20 个词，顺手复习昨天的。'),
   ];
 
-  static Task? byId(String id) {
-    for (final t in pool) {
+  /// 在给定任务列表中按 id 查找任务；找不到返回 null。
+  ///
+  /// UI 层传入 AppState.tasks；为空或未找到时回退到 seed 中查找，
+  /// 保证老用户历史里的 taskId 始终能解析。
+  static Task? byId(String id, [List<Task>? tasks]) {
+    final list = tasks ?? seed;
+    for (final t in list) {
+      if (t.id == id) return t;
+    }
+    // 回退：在默认种子里找（处理历史记录里的 id 还在但用户删了该任务的情况）
+    for (final t in seed) {
       if (t.id == id) return t;
     }
     return null;

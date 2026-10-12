@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.christopher" "\0"
-            VALUE "FileDescription", "today_do_what" "\0"
+            VALUE "FileDescription", "今天干点啥" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "today_do_what" "\0"
+            VALUE "InternalName", "今天干点啥" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.christopher. All rights reserved." "\0"
             VALUE "OriginalFilename", "today_do_what.exe" "\0"
-            VALUE "ProductName", "today_do_what" "\0"
+            VALUE "ProductName", "今天干点啥" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END
