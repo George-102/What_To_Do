@@ -195,10 +195,52 @@ void main() {
     expect(provider.state.taskStats.any((s) => s.taskId == 'yoga'), isTrue);
   });
 
+  test('自定义任务：同名任务替换而非重复', () {
+    final provider = AppProvider(now: () => DateTime(2026, 10, 7));
+    expect(provider.addTask(name: '学吉他', hint: '练 20 分钟'),
+        AddTaskResult.added);
+    final oldId = provider.state.tasks.single.id;
+
+    // 同名（含首尾空格）→ 原地替换：id、列表长度、taskStats 数量不变，hint 更新。
+    expect(provider.addTask(name: ' 学吉他 ', hint: '练 30 分钟'),
+        AddTaskResult.replaced);
+    expect(provider.state.tasks.length, 1);
+    expect(provider.state.tasks.single.id, oldId);
+    expect(provider.state.tasks.single.name, '学吉他');
+    expect(provider.state.tasks.single.hint, '练 30 分钟');
+    expect(provider.state.taskStats.length, 1);
+  });
+
   test('自定义任务：空名称添加失败', () {
     final provider = AppProvider(now: () => DateTime(2026, 10, 7));
     final ok = provider.addTask(name: '   ');
-    expect(ok, isFalse);
+    expect(ok, AddTaskResult.invalid);
     expect(provider.state.tasks, isEmpty);
+  });
+
+  test('自定义任务：addTask 携带频率', () {
+    final provider = AppProvider(now: () => DateTime(2026, 10, 7));
+    provider.addTask(name: '大扫除', hint: '全屋整理', frequency: 7);
+    final t = provider.state.tasks.single;
+    expect(t.frequency, 7);
+    expect(t.frequencyLabel, '每 7 天一次');
+  });
+
+  test('自定义任务：同名替换同时更新频率（保留 id）', () {
+    final provider = AppProvider(now: () => DateTime(2026, 10, 7));
+    provider.addTask(name: '大扫除', frequency: 7);
+    final oldId = provider.state.tasks.single.id;
+    provider.addTask(name: '大扫除', frequency: 1);
+    final t = provider.state.tasks.single;
+    expect(t.id, oldId);
+    expect(t.frequency, 1);
+  });
+
+  test('旧存档任务无 frequency 字段 → 解析为不限，序列化往返一致', () {
+    final t = Task.fromJson({'id': 'x', 'name': '旧任务', 'hint': ''});
+    expect(t.frequency, 0);
+    final roundTrip = Task.fromJson(t.toJson());
+    expect(roundTrip.frequency, 0);
+    expect(roundTrip.frequencyLabel, '不限');
   });
 }

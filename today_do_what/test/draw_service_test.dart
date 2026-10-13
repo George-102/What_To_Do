@@ -114,4 +114,87 @@ void main() {
         rerolled.taskStats.firstWhere((s) => s.taskId == 'kaoyan');
     expect(kaoyan.streak, 2);
   });
+
+  test('频率规则：每天任务连续 3 天必抽（绕过连续排除），总数补足 3 个', () {
+    final pool = [
+      const Task(id: 'daily', name: '每日必做', hint: '', frequency: 1),
+      const Task(id: 'a', name: 'A', hint: ''),
+      const Task(id: 'b', name: 'B', hint: ''),
+      const Task(id: 'c', name: 'C', hint: ''),
+      const Task(id: 'd', name: 'D', hint: ''),
+    ];
+    final draw = DrawService();
+    var state = AppState(tasks: pool);
+    for (final day in ['2026-10-07', '2026-10-08', '2026-10-09']) {
+      state = draw.drawForDay(state, day);
+      final rec = state.history.last;
+      // 第 3 天时 daily 的 streak 已达 2，连续排除规则本会踢掉它，但必抽优先。
+      expect(rec.taskIds.contains('daily'), isTrue, reason: '$day 应必抽 daily');
+      expect(rec.taskIds.length, 3, reason: '$day 应为 1 必抽 + 2 随机');
+    }
+  });
+
+  test('频率规则：每 2 天一次 → 首日必抽，隔天必不抽，第 3 天到期必抽', () {
+    final pool = [
+      const Task(id: 'alt', name: '隔天任务', hint: '', frequency: 2),
+      const Task(id: 'a', name: 'A', hint: ''),
+      const Task(id: 'b', name: 'B', hint: ''),
+      const Task(id: 'c', name: 'C', hint: ''),
+      const Task(id: 'd', name: 'D', hint: ''),
+      const Task(id: 'e', name: 'E', hint: ''),
+    ];
+    final draw = DrawService();
+    var state = AppState(tasks: pool);
+
+    state = draw.drawForDay(state, '2026-10-07'); // 从未抽过 → 必抽
+    expect(state.history.last.taskIds.contains('alt'), isTrue);
+
+    state = draw.drawForDay(state, '2026-10-08'); // 距上次 1 天 < 2 → 必不抽
+    expect(state.history.last.taskIds.contains('alt'), isFalse);
+
+    state = draw.drawForDay(state, '2026-10-09'); // 距上次 2 天 >= 2 → 到期必抽
+    expect(state.history.last.taskIds.contains('alt'), isTrue);
+    expect(state.history.last.taskIds.length, 3);
+  });
+
+  test('频率规则：每 3 天一次 → 抽中后两天不出现，第 3 天到期必抽', () {
+    final pool = [
+      const Task(id: 'tri', name: '三天任务', hint: '', frequency: 3),
+      const Task(id: 'a', name: 'A', hint: ''),
+      const Task(id: 'b', name: 'B', hint: ''),
+      const Task(id: 'c', name: 'C', hint: ''),
+      const Task(id: 'd', name: 'D', hint: ''),
+      const Task(id: 'e', name: 'E', hint: ''),
+    ];
+    final draw = DrawService();
+    var state = AppState(tasks: pool);
+
+    state = draw.drawForDay(state, '2026-10-07');
+    expect(state.history.last.taskIds.contains('tri'), isTrue);
+
+    state = draw.drawForDay(state, '2026-10-08'); // D=1 < 3
+    expect(state.history.last.taskIds.contains('tri'), isFalse);
+
+    state = draw.drawForDay(state, '2026-10-09'); // D=2 < 3
+    expect(state.history.last.taskIds.contains('tri'), isFalse);
+
+    state = draw.drawForDay(state, '2026-10-10'); // D=3 >= 3
+    expect(state.history.last.taskIds.contains('tri'), isTrue);
+  });
+
+  test('频率规则：必抽任务超过 3 个时全部入选，不再随机补足', () {
+    final pool = [
+      const Task(id: 'd1', name: '每天1', hint: '', frequency: 1),
+      const Task(id: 'd2', name: '每天2', hint: '', frequency: 1),
+      const Task(id: 'd3', name: '每天3', hint: '', frequency: 1),
+      const Task(id: 'd4', name: '每天4', hint: '', frequency: 1),
+      const Task(id: 'a', name: 'A', hint: ''),
+    ];
+    final draw = DrawService();
+    final state = draw.drawForDay(AppState(tasks: pool), '2026-10-07');
+    final ids = state.history.last.taskIds;
+    expect(ids.length, 4);
+    expect(ids.toSet().containsAll(['d1', 'd2', 'd3', 'd4']), isTrue);
+    expect(ids.contains('a'), isFalse);
+  });
 }

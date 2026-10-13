@@ -14,6 +14,18 @@ import '../services/draw_service.dart';
 import '../services/storage_service.dart';
 import '../services/sync_service.dart';
 
+/// [AppProvider.addTask] 的结果。
+enum AddTaskResult {
+  /// 新增了一个任务。
+  added,
+
+  /// 名称已存在，原地替换了旧任务。
+  replaced,
+
+  /// 名称为空，未做任何修改。
+  invalid,
+}
+
 /// 全局状态桥接层，UI 通过它读写 [AppState]。
 ///
 /// 进程内只会有一个 AppProvider（由 root 注入）。启动时调用 [init] 从本地恢复
@@ -237,10 +249,25 @@ class AppProvider extends ChangeNotifier {
     return true;
   }
 
-  /// 添加一个自定义任务。返回是否成功（名称为空或 id 已存在时返回 false）。
-  bool addTask({required String name, String hint = ''}) {
+  /// 添加一个自定义任务；已有同名任务时原地替换它（保留 id，历史与统计引用不受影响）。
+  AddTaskResult addTask({
+    required String name,
+    String hint = '',
+    int frequency = 0,
+  }) {
     final trimmed = name.trim();
-    if (trimmed.isEmpty) return false;
+    if (trimmed.isEmpty) return AddTaskResult.invalid;
+    final trimmedHint = hint.trim();
+
+    final existingIndex = _state.tasks.indexWhere((t) => t.name == trimmed);
+    if (existingIndex >= 0) {
+      final tasks = [..._state.tasks];
+      final old = tasks[existingIndex];
+      tasks[existingIndex] =
+          Task(id: old.id, name: old.name, hint: trimmedHint, frequency: frequency);
+      replace(_state.copyWith(tasks: tasks));
+      return AddTaskResult.replaced;
+    }
 
     final existingIds = _state.tasks.map((t) => t.id).toSet();
     // 生成唯一 id：用户输入的中文名 hash + 时间戳，避免中文直接作为 id
@@ -252,7 +279,7 @@ class AppProvider extends ChangeNotifier {
       counter++;
     }
 
-    final task = Task(id: id, name: trimmed, hint: hint.trim());
+    final task = Task(id: id, name: trimmed, hint: trimmedHint, frequency: frequency);
     replace(_state.copyWith(
       tasks: [..._state.tasks, task],
       taskStats: [
@@ -260,7 +287,7 @@ class AppProvider extends ChangeNotifier {
         TaskStats(taskId: id),
       ],
     ));
-    return true;
+    return AddTaskResult.added;
   }
 
   /// 删除一个任务。已出现在历史记录中的任务仍能解析（回退到 Task.seed 或显示"未知"）。

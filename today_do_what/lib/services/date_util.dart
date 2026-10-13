@@ -18,6 +18,15 @@ String subtractDays(String ymdStr, int days) {
 /// 昨天的日期。
 String yesterdayOf(String s) => subtractDays(s, 1);
 
+/// 两个 yyyy-MM-dd 相差的天数（[b] - [a]）。
+int daysBetween(String a, String b) {
+  final pa = a.split('-');
+  final pb = b.split('-');
+  final da = DateTime(int.parse(pa[0]), int.parse(pa[1]), int.parse(pa[2]));
+  final db = DateTime(int.parse(pb[0]), int.parse(pb[1]), int.parse(pb[2]));
+  return db.difference(da).inDays;
+}
+
 /// 返回 [dt] 所属的 ISO 周序号（周一起始）。
 ///
 /// 用于「每周一次反悔」的判定：同一年内同一自然周返回同一序号。

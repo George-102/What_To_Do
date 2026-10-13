@@ -23,6 +23,19 @@ class _SettingsPageState extends State<SettingsPage> {
   final _newHintController = TextEditingController();
   bool _isSubmitting = false;
 
+  /// 新任务的抽取频率：0=不限、1=每天、n=n 天一次。
+  int _newTaskFrequency = 0;
+
+  /// 频率下拉的可选项。
+  static const List<(int, String)> _frequencyOptions = [
+    (0, '不限（随机抽到）'),
+    (1, '每天'),
+    (2, '每 2 天一次'),
+    (3, '每 3 天一次'),
+    (5, '每 5 天一次'),
+    (7, '每 7 天一次'),
+  ];
+
   @override
   void dispose() {
     _codeController.dispose();
@@ -96,7 +109,7 @@ class _SettingsPageState extends State<SettingsPage> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  /// 添加自定义任务（名称 + 可选提示语）。
+  /// 添加自定义任务（名称 + 可选提示语 + 频率）；同名任务会替换旧的。
   void _addTask() {
     final name = _newTaskController.text.trim();
     final hint = _newHintController.text.trim();
@@ -105,14 +118,18 @@ class _SettingsPageState extends State<SettingsPage> {
       return;
     }
     final provider = context.read<AppProvider>();
-    final ok = provider.addTask(name: name, hint: hint);
-    if (ok) {
-      _newTaskController.clear();
-      _newHintController.clear();
-      _showSnack('已添加「$name」');
-    } else {
+    final result =
+        provider.addTask(name: name, hint: hint, frequency: _newTaskFrequency);
+    if (result == AddTaskResult.invalid) {
       _showSnack('添加失败，请检查名称');
+      return;
     }
+    _newTaskController.clear();
+    _newHintController.clear();
+    setState(() => _newTaskFrequency = 0);
+    _showSnack(
+      result == AddTaskResult.added ? '已添加「$name」' : '已有同名任务，已更新「$name」',
+    );
   }
 
   /// 确认删除任务。
@@ -391,6 +408,37 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                     onSubmitted: (_) => _addTask(),
                   ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Text(
+                        '频率',
+                        style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          decoration: BoxDecoration(
+                            color: AppColors.background,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<int>(
+                              value: _newTaskFrequency,
+                              isExpanded: true,
+                              items: [
+                                for (final (value, label) in _frequencyOptions)
+                                  DropdownMenuItem(value: value, child: Text(label)),
+                              ],
+                              onChanged: (v) =>
+                                  setState(() => _newTaskFrequency = v ?? 0),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 12),
                   Consumer<AppProvider>(
                     builder: (context, provider, _) {
@@ -571,6 +619,24 @@ class _TaskRow extends StatelessWidget {
               ],
             ),
           ),
+          if (task.frequency > 0) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                task.frequencyLabel,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
           IconButton(
             onPressed: onDelete,
             icon: const Icon(Icons.delete_outline, size: 18),

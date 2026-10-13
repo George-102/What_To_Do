@@ -6,11 +6,17 @@ import '../models/task.dart';
 import '../models/task_stats.dart';
 import 'date_util.dart';
 
-/// 抽奖服务：从任务池随机抽取当天任务，并落地「连续排除规则」。
+/// 抽奖服务：从任务池随机抽取当天任务，并落地「连续排除规则」与「频率规则」。
 ///
 /// 连续排除规则：某任务连续两天被抽中，第三天从池中排除；若某天未抽中，
 /// 连续计数即中断（规则语义见 plan.md 第三节）。
 ///
+/// 频率规则（[Task.frequency]）：
+/// - 每天（1）：每天必抽，且不受连续排除规则约束；
+/// - n 天一次（n ≥ 2）：距上次抽中 ≥ n 天或从未抽过 → 今天必抽；
+///   距上次抽中 < n 天 → 今天必不抽（保证每 n 天内恰好只有一天抽到）。
+///
+/// 必抽任务全部入选；剩余名额用「不限频率」任务随机补足到 [dailyCount] 个。
 /// 任务来源：[state.tasks]（用户自定义列表）；为空时回退到 [Task.seed]。
 class DrawService {
   DrawService({Random? random, DateTime Function()? now})
@@ -20,7 +26,7 @@ class DrawService {
   final Random _random;
   final DateTime Function() _now;
 
-  /// 每天抽取的任务数。
+  /// 每天抽取的任务数（必抽任务超过该数时以必抽数为准）。
   static const int dailyCount = 3;
 
   /// 直接用任务池随机取 [count] 个不重复 id（不代入排除规则）。
@@ -31,21 +37,39 @@ class DrawService {
 
   /// 为某天抽取任务。
   ///
-  /// 当天已有结果则原样返回（结果固定，不重抽）；否则基于已有历史计算每个任务的
-  /// 「连续抽中天数」并排除需停用任务，再随机抽 [dailyCount] 个，最后重算 taskStats。
+  /// 当天已有结果则原样返回（结果固定，不重抽）；否则先按频率规则确定必抽
+  /// 与必不抽任务，再用「不限频率」任务随机补足到 [dailyCount] 个（必抽任务
+  /// 不足时），最后重算 taskStats。
   AppState drawForDay(AppState state, String today) {
     if (_isDrawn(state, today)) return state;
 
     final pool = _resolveTasks(state.tasks);
     final yesterday = yesterdayOf(today);
+
+    final mandatory = <String>[]; // 今天必抽
+    final inCycle = <String>{}; // 频率周期内，今天必不抽
+    for (final t in pool) {
+      if (t.frequency <= 0) continue;
+      final last = _lastSelected(state.history, t.id);
+      if (last == null || daysBetween(last, today) >= t.frequency) {
+        mandatory.add(t.id);
+      } else {
+        inCycle.add(t.id);
+      }
+    }
+
+    // 连续排除规则只作用于随机补足部分（必抽任务不受其约束）。
     final excluded = <String>{
       for (final t in pool)
         if (_consecutiveSelectedStatic(state.history, yesterday, t.id) >= 2) t.id,
     };
-
-    final drawPool =
-        pool.map((t) => t.id).where((id) => !excluded.contains(id)).toList();
-    final ids = _pick(drawPool, dailyCount);
+    final drawPool = pool
+        .where((t) => t.frequency <= 0 && !excluded.contains(t.id))
+        .map((t) => t.id)
+        .toList();
+    final fillCount =
+        mandatory.length >= dailyCount ? 0 : dailyCount - mandatory.length;
+    final ids = [...mandatory, ..._pick(drawPool, fillCount)];
 
     final history = [
       ...state.history,
@@ -141,5 +165,17 @@ class DrawService {
       if (r.date == date) return r.taskIds.contains(taskId);
     }
     return false;
+  }
+
+  /// 任务最近一次被抽中的日期（yyyy-MM-dd），从未抽过返回 null。
+  static String? _lastSelected(List<DailyRecord> history, String taskId) {
+    String? last;
+    for (final r in history) {
+      if (r.taskIds.contains(taskId) &&
+          (last == null || r.date.compareTo(last) > 0)) {
+        last = r.date;
+      }
+    }
+    return last;
   }
 }

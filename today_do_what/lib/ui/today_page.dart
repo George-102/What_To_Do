@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/daily_record.dart';
 import '../models/task.dart';
 import '../providers/app_provider.dart';
+import '../services/draw_service.dart';
 import 'app_colors.dart';
 
 /// 今日页：抽签、查看当天任务、打卡的核心页面。
@@ -18,20 +19,33 @@ class _TodayPageState extends State<TodayPage> with TickerProviderStateMixin {
   /// 当前是否在播放抽卡动画中。
   bool _isAnimating = false;
 
-  /// 3 张卡片的动画控制器（每张依次翻转揭晓）。
-  late final List<AnimationController> _flipControllers;
-  late final List<Animation<double>> _flipAnimations;
+  /// 卡片动画控制器（每张依次翻转揭晓；数量随当天任务数变化，默认 3 张）。
+  late List<AnimationController> _flipControllers;
+  late List<Animation<double>> _flipAnimations;
 
   @override
   void initState() {
     super.initState();
-    _flipControllers = List.generate(
-      3,
-      (_) => AnimationController(
-        vsync: this,
-        duration: const Duration(milliseconds: 500),
-      ),
-    );
+    _flipControllers = _buildControllers(DrawService.dailyCount);
+    _flipAnimations = _flipControllers
+        .map((c) => CurvedAnimation(parent: c, curve: Curves.easeInOut))
+        .toList();
+  }
+
+  List<AnimationController> _buildControllers(int count) => List.generate(
+        count,
+        (_) => AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 500),
+        ),
+      );
+
+  /// 按当天任务数重建动画控制器（必抽任务超过 3 个时卡片数会大于 3）。
+  void _rebuildControllers(int count) {
+    for (final c in _flipControllers) {
+      c.dispose();
+    }
+    _flipControllers = _buildControllers(count);
     _flipAnimations = _flipControllers
         .map((c) => CurvedAnimation(parent: c, curve: Curves.easeInOut))
         .toList();
@@ -46,16 +60,27 @@ class _TodayPageState extends State<TodayPage> with TickerProviderStateMixin {
   }
 
   /// 点击抽奖后，先执行 provider.drawToday（数据立即落地），
-  /// 然后依次启动 3 张卡片的翻牌动画。
+  /// 然后按当天实际任务数依次启动翻牌动画。
   Future<void> _onDraw() async {
     if (_isAnimating) return;
-    setState(() => _isAnimating = true);
 
     final provider = context.read<AppProvider>();
     provider.drawToday();
 
+    final todayRec = _recordOn(provider.state.history, provider.todayString);
+    final count = todayRec == null || todayRec.taskIds.isEmpty
+        ? DrawService.dailyCount
+        : todayRec.taskIds.length;
+
+    setState(() {
+      _isAnimating = true;
+      if (count != _flipControllers.length) {
+        _rebuildControllers(count);
+      }
+    });
+
     // 依次翻牌：每张间隔 350ms，翻牌动画 500ms
-    for (var i = 0; i < 3; i++) {
+    for (var i = 0; i < _flipControllers.length; i++) {
       await Future.delayed(const Duration(milliseconds: 350));
       if (!mounted) return;
       await _flipControllers[i].forward();
@@ -128,7 +153,7 @@ class _TodayPageState extends State<TodayPage> with TickerProviderStateMixin {
   }
 }
 
-/// 抽卡动画：3 张背面朝下的卡片，依次翻转显示结果。
+/// 抽卡动画：N 张背面朝下的卡片（N = 当天任务数），依次翻转显示结果。
 ///
 /// 动画播放期间 provider.drawToday 已经执行完毕，state 中有真实的
 /// [AppState.history] 数据，但动画层自行根据 AnimationController 状态
@@ -149,7 +174,7 @@ class _DrawAnimation extends StatelessWidget {
 
     return Column(
       children: [
-        for (var i = 0; i < 3; i++) ...[
+        for (var i = 0; i < animations.length; i++) ...[
           if (i > 0) const SizedBox(height: 12),
           _FlipCard(
             animation: animations[i],

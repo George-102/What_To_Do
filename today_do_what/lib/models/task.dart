@@ -1,6 +1,11 @@
 /// 任务模型。任务列表由用户自定义后保存在 [AppState.tasks] 中。
 class Task {
-  const Task({required this.id, required this.name, required this.hint});
+  const Task({
+    required this.id,
+    required this.name,
+    this.hint = '',
+    this.frequency = 0,
+  });
 
   final String id;
   final String name;
@@ -8,12 +13,30 @@ class Task {
   /// 一句简短提示语，仅作视觉点缀，不影响逻辑。
   final String hint;
 
-  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'hint': hint};
+  /// 抽取频率：0=不限（随机抽取）、1=每天必抽、n=n 天一次
+  /// （每 n 天内必须且仅有一天抽到该任务）。
+  final int frequency;
+
+  /// 频率的展示文案。
+  String get frequencyLabel {
+    switch (frequency) {
+      case 0:
+        return '不限';
+      case 1:
+        return '每天';
+      default:
+        return '每 $frequency 天一次';
+    }
+  }
+
+  Map<String, dynamic> toJson() =>
+      {'id': id, 'name': name, 'hint': hint, 'frequency': frequency};
 
   factory Task.fromJson(Map<String, dynamic> json) => Task(
         id: json['id'] as String,
         name: json['name'] as String,
         hint: json['hint'] as String,
+        frequency: json['frequency'] as int? ?? 0,
       );
 
   /// 默认任务种子（8 个），首次使用或存档为空时注入 AppState.tasks。
