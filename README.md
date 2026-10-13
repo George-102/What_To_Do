@@ -50,8 +50,4 @@ flutter test
 ## 仓库结构
 
 - `today_do_what/` — Flutter 应用源码
-- `feature_list.json` — 功能清单与验证状态（开发的唯一事实来源）
-- `claude-progress.md` — AI 辅助开发的会话进度日志
-- `init.sh` — 统一的启动与验证入口（pub get + analyze + test）
-
-本项目采用 AI 辅助的长会话开发工作流，`AGENTS.md` 中记录了完整约定。
+- `logo.png` — 应用图标源图

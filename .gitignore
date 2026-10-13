@@ -1,2 +1,8 @@
 # IDE 本地配置（含个人绝对路径，不入库）
 .vscode/
+
+# 本地 AI 开发工作流文件（仅本地保留，不上传 GitHub）
+/*.md
+!/README.md
+/*.json
+/*.sh
